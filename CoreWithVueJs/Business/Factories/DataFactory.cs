@@ -1,6 +1,7 @@
 ﻿using CoreWithVueJs.Business.Database;
 using CoreWithVueJs.Business.Factories.Interfaces;
 using CoreWithVueJs.Models.Interfaces.Base;
+using Microsoft.EntityFrameworkCore;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -15,16 +16,28 @@ namespace CoreWithVueJs.Business.Factories
     /// </summary>
     public abstract class DataFactory : IDataFactory
     {
-        private const string COMMENT_CACHE_KEY = "__cache_comment_{0}";
-        private const string POST_CACHE_KEY = "__cache_post_{0}";
         private const string CONTENT_CACHE_KEY = "__cache_content_{0}";
         private const int CACHE_EXPIRATION_IN_MINUTES = 15;
 
-        public async Task<IBase> CreateAsync<TModel>(TModel model) where TModel : IBase
+        public async Task<IEnumerable<IPost>> GetAllPostsAsync()
         {
             using CoreDbContext context = CoreDbContext.Default;
 
-            var entity = await context.AddAsync(model).ConfigureAwait(false);
+            return await context.Posts.ToListAsync().ConfigureAwait(false);
+        }
+
+        public async Task<IEnumerable<T>> GetAllOfTypeAsync<T>() where T : IBase
+        {
+            using CoreDbContext context = CoreDbContext.Default;
+
+            return await context.Entities.OfType<T>().ToListAsync().ConfigureAwait(false);
+        }
+
+        public async Task<TModel> CreateAsync<TModel>(TModel model) where TModel : IBase
+        {
+            using CoreDbContext context = CoreDbContext.Default;
+
+            var entity = await context.Entities.AddAsync(model).ConfigureAwait(false);
             await context.SaveChangesAsync().ConfigureAwait(false);
 
             ObjectCache cache = MemoryCache.Default;
@@ -36,7 +49,7 @@ namespace CoreWithVueJs.Business.Factories
             return content;
         }
 
-        public async Task<IBase> GetAsync<TModel>(Guid ID) where TModel : IBase
+        public async Task<TModel> GetAsync<TModel>(Guid ID) where TModel : IBase
         {
             using CoreDbContext context = CoreDbContext.Default;
             ObjectCache cache = MemoryCache.Default;
@@ -47,7 +60,7 @@ namespace CoreWithVueJs.Business.Factories
             }
             else
             {
-                var comment = await context.FindAsync<IBase>(ID).ConfigureAwait(false);
+                var comment = await context.Entities.FindAsync(ID).ConfigureAwait(false);
 
                 cache.Set(string.Format(CONTENT_CACHE_KEY, ID), comment, DateTimeOffset.Now.AddMinutes(CACHE_EXPIRATION_IN_MINUTES));
 
@@ -55,19 +68,19 @@ namespace CoreWithVueJs.Business.Factories
             }
         }
 
-        public async Task<IBase> GetAsync<TModel>(int ID) where TModel : IBase
+        public async Task<TModel> GetAsync<TModel>(int ID) where TModel : IBase
         {
             using CoreDbContext context = CoreDbContext.Default;
 
-            return (TModel)await context.FindAsync<IBase>(ID).ConfigureAwait(false);
+            return (TModel)await context.Entities.FindAsync(ID).ConfigureAwait(false);
         }
 
-        public async Task<IBase> UpdateAsync<TModel>(TModel model) where TModel : IBase
+        public async Task<TModel> UpdateAsync<TModel>(TModel model) where TModel : IBase
         {
             using CoreDbContext context = CoreDbContext.Default;
             ObjectCache cache = MemoryCache.Default;
 
-            var state = context.Update<IBase>(model);
+            var state = context.Entities.Update(model);
 
             await context.SaveChangesAsync().ConfigureAwait(false);
 
@@ -81,24 +94,24 @@ namespace CoreWithVueJs.Business.Factories
             try
             {
                 using CoreDbContext context = CoreDbContext.Default;
-                IBase comment = null;
+                IBase entity = null;
                 ObjectCache cache = MemoryCache.Default;
 
                 if (cache.Contains(string.Format(CONTENT_CACHE_KEY, ID)))
                 {
-                    comment = (TModel)cache.Get(string.Format(CONTENT_CACHE_KEY, ID));
+                    entity = (TModel)cache.Get(string.Format(CONTENT_CACHE_KEY, ID));
                     cache.Remove(string.Format(CONTENT_CACHE_KEY, ID));
                 }
                 else
                 {
-                    comment = await context.FindAsync<IBase>(ID).ConfigureAwait(false);
+                    entity = await context.Entities.FindAsync(ID).ConfigureAwait(false);
                 }
 
-                var entity = context.Remove(comment);
+                var entry = context.Entities.Remove(entity);
 
                 await context.SaveChangesAsync().ConfigureAwait(false);
 
-                return entity.State == Microsoft.EntityFrameworkCore.EntityState.Deleted;
+                return entry.State == EntityState.Deleted;
             }
             catch
             {
@@ -114,18 +127,18 @@ namespace CoreWithVueJs.Business.Factories
                 using CoreDbContext context = CoreDbContext.Default;
                 ObjectCache cache = MemoryCache.Default;
 
-                var comment = await context.FindAsync<IBase>(ID).ConfigureAwait(false);
+                var entity = await context.Entities.FindAsync(ID).ConfigureAwait(false);
 
                 if (cache.Contains(string.Format(CONTENT_CACHE_KEY, ID)))
                 {
                     cache.Remove(string.Format(CONTENT_CACHE_KEY, ID));
                 }
 
-                var entity = context.Remove(comment);
+                var entry = context.Entities.Remove(entity);
 
                 await context.SaveChangesAsync().ConfigureAwait(false);
 
-                return entity.State == Microsoft.EntityFrameworkCore.EntityState.Deleted;
+                return entry.State == EntityState.Deleted;
             }
             catch
             {
@@ -138,7 +151,7 @@ namespace CoreWithVueJs.Business.Factories
         {
             using CoreDbContext context = CoreDbContext.Default;
 
-            var model = await context.FindAsync<ILikesDislikes>(ID).ConfigureAwait(false);
+            var model = await context.Entities.FindAsync(ID).ConfigureAwait(false) as ILikesDislikes;
 
             return (new ReadOnlyCollection<ILike>(model.Dislikes.ToList()), new ReadOnlyCollection<ILike>(model.Likes.ToList()));
         }
@@ -147,248 +160,9 @@ namespace CoreWithVueJs.Business.Factories
         {
             using CoreDbContext context = CoreDbContext.Default;
 
-            var model = await context.FindAsync<ILikesDislikes>(ID).ConfigureAwait(false);
+            var model = await context.Entities.FindAsync(ID).ConfigureAwait(false) as ILikesDislikes;
 
             return (new ReadOnlyCollection<ILike>(model.Dislikes.ToList()), new ReadOnlyCollection<ILike>(model.Likes.ToList()));
-        }
-
-        public async Task<IComment> CreateCommentAsync(IComment comment)
-        {
-            using CoreDbContext context = CoreDbContext.Default;
-
-            var entity = await context.AddAsync(comment).ConfigureAwait(false);
-            await context.SaveChangesAsync().ConfigureAwait(false);
-
-            ObjectCache cache = MemoryCache.Default;
-
-            cache.Set(string.Format(COMMENT_CACHE_KEY, entity.Entity.GUID), entity.Entity, DateTimeOffset.Now.AddMinutes(CACHE_EXPIRATION_IN_MINUTES));
-
-            return entity.Entity;
-        }
-
-        public async Task<IPost> CreatePostAsync(IPost post)
-        {
-            using CoreDbContext context = CoreDbContext.Default;
-
-            var entity = await context.Posts.AddAsync(post).ConfigureAwait(false);
-            await context.SaveChangesAsync().ConfigureAwait(false);
-
-            ObjectCache cache = MemoryCache.Default;
-
-            cache.Set(string.Format(POST_CACHE_KEY, entity.Entity.GUID), entity.Entity, DateTimeOffset.Now.AddMinutes(CACHE_EXPIRATION_IN_MINUTES));
-
-            return entity.Entity;
-        }
-
-        public async Task<bool> DeleteCommentAsync(Guid ID)
-        {
-            try
-            {
-                using CoreDbContext context = CoreDbContext.Default;
-                IComment comment = null;
-                ObjectCache cache = MemoryCache.Default;
-
-                if (cache.Contains(string.Format(COMMENT_CACHE_KEY, ID)))
-                {
-                    comment = cache.Get(string.Format(COMMENT_CACHE_KEY, ID)) as IComment;
-                    cache.Remove(string.Format(COMMENT_CACHE_KEY, ID));
-                }
-                else
-                {
-                    comment = await context.FindAsync<IComment>(ID).ConfigureAwait(false);
-                }
-
-                var entity = context.Remove(comment);
-
-                await context.SaveChangesAsync().ConfigureAwait(false);
-
-                return entity.State == Microsoft.EntityFrameworkCore.EntityState.Deleted;
-            }
-            catch
-            {
-            }
-
-            return false;
-        }
-
-        public async Task<bool> DeleteCommentAsync(int ID)
-        {
-            try
-            {
-                using CoreDbContext context = CoreDbContext.Default;
-                ObjectCache cache = MemoryCache.Default;
-
-                var comment = await context.FindAsync<IComment>(ID).ConfigureAwait(false);
-
-                if (cache.Contains(string.Format(COMMENT_CACHE_KEY, comment.GUID)))
-                {
-                    cache.Remove(string.Format(COMMENT_CACHE_KEY, comment.GUID));
-                }
-
-                var entity = context.Remove(comment);
-
-                await context.SaveChangesAsync().ConfigureAwait(false);
-
-                return entity.State == Microsoft.EntityFrameworkCore.EntityState.Deleted;
-            }
-            catch
-            {
-            }
-
-            return false;
-        }
-
-        public async Task<bool> DeletePostAsync(Guid ID)
-        {
-            try
-            {
-                using CoreDbContext context = CoreDbContext.Default;
-                ObjectCache cache = MemoryCache.Default;
-                IPost post = null;
-
-                if (cache.Contains(string.Format(POST_CACHE_KEY, ID)))
-                {
-                    post = cache.Get(string.Format(POST_CACHE_KEY, ID)) as IPost;
-                }
-                else
-                {
-                    post = await context.FindAsync<IPost>(ID).ConfigureAwait(false);
-                }
-
-                var entity = context.Remove(post);
-
-                await context.SaveChangesAsync().ConfigureAwait(false);
-
-                return entity.State == Microsoft.EntityFrameworkCore.EntityState.Deleted;
-            }
-            catch
-            {
-            }
-
-            return false;
-        }
-
-        public async Task<bool> DeletePostAsync(int ID)
-        {
-            try
-            {
-                using CoreDbContext context = CoreDbContext.Default;
-                ObjectCache cache = MemoryCache.Default;
-
-                var post = await context.FindAsync<IPost>(ID).ConfigureAwait(false);
-
-                if (cache.Contains(string.Format(POST_CACHE_KEY, post.GUID)))
-                {
-                    cache.Remove(string.Format(POST_CACHE_KEY, post.GUID));
-                }
-
-                var entity = context.Remove(post);
-
-                await context.SaveChangesAsync().ConfigureAwait(false);
-
-                return entity.State == Microsoft.EntityFrameworkCore.EntityState.Deleted;
-            }
-            catch
-            {
-            }
-
-            return false;
-        }
-
-        public async Task<IComment> GetCommentAsync(Guid ID)
-        {
-            using CoreDbContext context = CoreDbContext.Default;
-            ObjectCache cache = MemoryCache.Default;
-
-            if (cache.Contains(string.Format(COMMENT_CACHE_KEY, ID)))
-            {
-                return cache.Get(string.Format(COMMENT_CACHE_KEY, ID)) as IComment;
-            }
-            else
-            {
-                var comment = await context.FindAsync<IComment>(ID).ConfigureAwait(false);
-
-                cache.Set(string.Format(COMMENT_CACHE_KEY, ID), comment, DateTimeOffset.Now.AddMinutes(CACHE_EXPIRATION_IN_MINUTES));
-
-                return comment;
-            }
-        }
-
-        public async Task<IComment> GetCommentAsync(int ID)
-        {
-            using CoreDbContext context = CoreDbContext.Default;
-            ObjectCache cache = MemoryCache.Default;
-
-            var comment = await context.FindAsync<IComment>(ID).ConfigureAwait(false);
-
-            if (!cache.Contains(string.Format(COMMENT_CACHE_KEY, comment.GUID)))
-            {
-                cache.Set(string.Format(COMMENT_CACHE_KEY, ID), comment, DateTimeOffset.Now.AddMinutes(CACHE_EXPIRATION_IN_MINUTES));
-            }
-
-            return comment;
-        }
-
-        public async Task<IPost> GetPostAsync(Guid ID)
-        {
-            using CoreDbContext context = CoreDbContext.Default;
-            ObjectCache cache = MemoryCache.Default;
-
-            if (cache.Contains(string.Format(POST_CACHE_KEY, ID)))
-            {
-                return cache.Get(string.Format(POST_CACHE_KEY, ID)) as IPost;
-            }
-            else
-            {
-                var post = await context.FindAsync<IPost>(ID).ConfigureAwait(false);
-
-                cache.Set(string.Format(POST_CACHE_KEY, ID), post, DateTimeOffset.Now.AddMinutes(CACHE_EXPIRATION_IN_MINUTES));
-
-                return post;
-            }
-        }
-
-        public async Task<IPost> GetPostAsync(int ID)
-        {
-            using CoreDbContext context = CoreDbContext.Default;
-            ObjectCache cache = MemoryCache.Default;
-
-            var post = await context.FindAsync<IPost>(ID).ConfigureAwait(false);
-
-            if (!cache.Contains(string.Format(POST_CACHE_KEY, post.GUID)))
-            {
-                cache.Set(string.Format(POST_CACHE_KEY, ID), post, DateTimeOffset.Now.AddMinutes(CACHE_EXPIRATION_IN_MINUTES));
-            }
-
-            return post;
-        }
-
-        public async Task<IComment> UpdateCommentAsync(IComment comment)
-        {
-            using CoreDbContext context = CoreDbContext.Default;
-            ObjectCache cache = MemoryCache.Default;
-
-            var state = context.Update(comment);
-
-            await context.SaveChangesAsync().ConfigureAwait(false);
-
-            cache.Set(string.Format(COMMENT_CACHE_KEY, comment.GUID), state.Entity, DateTimeOffset.Now.AddMinutes(CACHE_EXPIRATION_IN_MINUTES));
-
-            return state.Entity;
-        }
-
-        public async Task<IPost> UpdatePostAsync(IPost post)
-        {
-            using CoreDbContext context = CoreDbContext.Default;
-            ObjectCache cache = MemoryCache.Default;
-
-            var state = context.Update(post);
-
-            await context.SaveChangesAsync().ConfigureAwait(false);
-
-            cache.Set(string.Format(POST_CACHE_KEY, post.GUID), state.Entity, DateTimeOffset.Now.AddMinutes(CACHE_EXPIRATION_IN_MINUTES));
-
-            return state.Entity;
         }
     }
 }
