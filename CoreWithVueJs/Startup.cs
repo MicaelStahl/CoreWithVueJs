@@ -1,39 +1,42 @@
 using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
+using System.Text;
 using CoreWithVueJs.Business.Database;
 using CoreWithVueJs.Business.Factories;
 using CoreWithVueJs.Business.Factories.Interfaces;
-using CoreWithVueJs.Models.Models.Data;
-using Microsoft.AspNetCore.Authentication;
+using CoreWithVueJs.Models.Models.Identity;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.HttpsPolicy;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
+using Microsoft.IdentityModel.Tokens;
 
 namespace CoreWithVueJs
 {
     public class Startup
     {
-        public Startup(IConfiguration configuration)
+        public Startup(IConfiguration configuration, IHostEnvironment environment)
         {
             Configuration = configuration;
+            Environment = environment;
         }
 
+        public IHostEnvironment Environment { get; }
         public IConfiguration Configuration { get; }
 
         // This method gets called by the runtime. Use this method to add services to the container.
         public void ConfigureServices(IServiceCollection services)
         {
+            services.AddSession(config => config.IdleTimeout = TimeSpan.FromHours(1));
+
             services.AddDbContext<CoreDbContext>(options =>
             options.UseSqlServer(Configuration.GetConnectionString("DefaultConnection")));
+
+            services.AddHttpContextAccessor();
 
             services.AddIdentity<ApplicationUser, IdentityRole>(setup =>
             {
@@ -47,17 +50,38 @@ namespace CoreWithVueJs
                 setup.User.RequireUniqueEmail = true;
             });
 
-            // Work on this later.
-            services.AddAuthentication().AddCookie(options =>
+            services.AddAuthentication(auth =>
             {
-                options.Cookie = new Microsoft.AspNetCore.Http.CookieBuilder
+                auth.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+                auth.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+            })
+                .AddJwtBearer(token =>
                 {
-                    SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Lax,
-                    SecurePolicy = Microsoft.AspNetCore.Http.CookieSecurePolicy.SameAsRequest,
-                    HttpOnly = true,
-                    Name = "Authentication_cookie"
-                };
-            });
+                    token.RequireHttpsMetadata = !Environment.IsDevelopment();
+                    token.SaveToken = true;
+                    token.TokenValidationParameters = new TokenValidationParameters
+                    {
+                        ValidateIssuerSigningKey = true,
+                        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(Configuration["SecretKey"])),
+                        ValidateIssuer = true,
+                        ValidIssuer = "https://localhost:54051",
+                        ValidateAudience = true,
+                        ValidAudience = "https://localhost:54051",
+                        RequireExpirationTime = true,
+                        ValidateLifetime = true,
+                        ClockSkew = TimeSpan.Zero
+                    };
+                })
+                .AddCookie(options =>
+                {
+                    options.Cookie = new Microsoft.AspNetCore.Http.CookieBuilder
+                    {
+                        SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Lax,
+                        SecurePolicy = Microsoft.AspNetCore.Http.CookieSecurePolicy.SameAsRequest,
+                        HttpOnly = true,
+                        Name = "Authentication_cookie"
+                    };
+                });
 
             services.AddScoped<IDataFactory, DataFactory>();
 
@@ -65,6 +89,8 @@ namespace CoreWithVueJs
 
             services.AddControllers();
             services.AddSpaStaticFiles(options => options.RootPath = "client-app/dist");
+
+            services.AddMvcCore().SetCompatibilityVersion(CompatibilityVersion.Version_3_0);
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
@@ -80,6 +106,9 @@ namespace CoreWithVueJs
                 app.UseHsts();
             }
 
+            app.Use(async (_, next) => await next.Invoke().ConfigureAwait(false));
+
+            app.UseSession();
             app.UseHttpsRedirection();
 
             app.UseRouting();

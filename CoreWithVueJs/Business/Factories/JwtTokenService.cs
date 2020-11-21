@@ -8,6 +8,9 @@ using System.Text;
 
 namespace CoreWithVueJs.Business.Factories
 {
+    /// <summary>
+    /// Add a interface to this method at a later point to access it via DI.
+    /// </summary>
     public class JwtTokenService
     {
         private readonly IConfiguration _configuration;

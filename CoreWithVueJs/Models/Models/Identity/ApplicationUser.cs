@@ -4,7 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 
-namespace CoreWithVueJs.Models.Models.Data
+namespace CoreWithVueJs.Models.Models.Identity
 {
     public class ApplicationUser : IdentityUser<Guid>
     {
