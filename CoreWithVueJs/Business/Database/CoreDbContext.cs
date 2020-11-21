@@ -19,6 +19,11 @@ namespace CoreWithVueJs.Business.Database
         public DbSet<IComment> Comments { get; set; }
 
         /// <summary>
+        /// The default instance containing all content
+        /// </summary>
+        public DbSet<IBase> Entities { get; set; }
+
+        /// <summary>
         /// The Default instance of <see cref="CoreDbContext"/> created using default settings used in <see cref="Startup"/>
         /// </summary>
         public static CoreDbContext Default => _default ?? CreateDefaultContext();
